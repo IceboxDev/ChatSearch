@@ -105,32 +105,92 @@ welcomePanel.addEventListener('drop', e => {
   handleFile(e.dataTransfer.files[0]);
 });
 
+// ── Client-side chat parser (mirrors backend/main.py logic) ──────────────────
+const _TIME   = String.raw`\d{1,2}:\d{2}(?::\d{2})?(?:\u202f?[APap][Mm])?`;
+const _DATE   = String.raw`\d{1,2}/\d{1,2}/\d{2,4}`;
+const FMT_A   = new RegExp(String.raw`^\[(\s*${_TIME}),\s*(${_DATE})\]\s+([^:]+):\s*(.*)`);
+const FMT_B   = new RegExp(String.raw`^(${_DATE}),\s*(${_TIME})\s+-\s+([^:]+):\s*(.*)`);
+const MEDIA_RE = /<[^>]*(?:omitted|attached)[^>]*>/i;
+
+function parseFmtA(line) {
+  const m = FMT_A.exec(line);
+  if (!m) return null;
+  const [, time, date, sender, text] = m;
+  return [time.trim(), date.trim(), sender.trim(), text];
+}
+
+function parseFmtB(line) {
+  const m = FMT_B.exec(line);
+  if (!m) return null;
+  const [, date, time, sender, text] = m;
+  const parts = date.split('/');
+  const normalised = parts.length === 3 ? `${parts[1]}/${parts[0]}/${parts[2]}` : date;
+  return [time.trim(), normalised.trim(), sender.trim(), text];
+}
+
+function parseChat(content) {
+  content = content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = content.split('\n');
+
+  let countA = 0, countB = 0;
+  for (const l of lines) {
+    if (FMT_A.test(l)) countA++;
+    else if (FMT_B.test(l)) countB++;
+  }
+  const parsePrimary   = countA >= countB ? parseFmtA : parseFmtB;
+  const parseSecondary = countA >= countB ? parseFmtB : parseFmtA;
+
+  const messages = [];
+  const participantSet = new Set();
+  let current = null;
+
+  for (const line of lines) {
+    const parsed = parsePrimary(line);
+    if (parsed) {
+      if (current) messages.push(current);
+      const [time, date, sender, text] = parsed;
+      participantSet.add(sender);
+      current = { time, date, sender, text: text.trim(), is_media: MEDIA_RE.test(text) };
+    } else if (current !== null && line.trim()) {
+      const sec = parseSecondary(line);
+      if (sec) {
+        const [,, secSender, secText] = sec;
+        current.text += `\n${secSender}: ${secText.trim()}`;
+      } else {
+        current.text += '\n' + line;
+      }
+    }
+  }
+  if (current) messages.push(current);
+
+  const participants = [...participantSet].sort();
+  return { messages, participants, title: null };
+}
+
 // ── Upload & parse ────────────────────────────────────────────────────────────
 async function uploadFile(file) {
   showLoading(true);
   hideError();
 
-  // Read raw bytes for SHA-256 cache key (used by context search)
-  let rawBytes = null;
   try {
-    rawBytes = await readFileBytes(file);
-  } catch {
-    // Non-fatal — context search will re-embed if bytes unavailable
-  }
+    const rawBytes = await readFileBytes(file);
 
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const res = await fetch(`${API_BASE}/api/parse`, { method: 'POST', body: formData });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Upload failed.' }));
-      throw new Error(err.detail || 'Upload failed.');
+    // Decode text (try UTF-8 first, fall back to latin-1)
+    let text;
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes);
+    } catch {
+      text = new TextDecoder('latin-1').decode(rawBytes);
     }
-    const data = await res.json();
-    currentChat      = data;
-    currentRawBytes  = rawBytes;
-    currentChunks    = null;
+
+    const data = parseChat(text);
+    if (!data.messages.length) {
+      throw new Error('No messages found. Make sure the file is a WhatsApp chat export.');
+    }
+
+    currentChat       = data;
+    currentRawBytes   = rawBytes;
+    currentChunks     = null;
     currentEmbeddings = null;
     resolveIdentityAndRender(data, file.name);
   } catch (err) {
