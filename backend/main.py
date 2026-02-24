@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -32,13 +33,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_DIR = pathlib.Path(__file__).parent.parent / "frontend"
+PUBLIC_DIR = pathlib.Path(__file__).parent.parent / "public"
 
-# Mount static files for local dev; on Vercel, the CDN serves frontend/ directly
+# Serve static assets; public/ is used both locally and on Vercel
 try:
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    app.mount("/static", StaticFiles(directory=str(PUBLIC_DIR)), name="static")
 except Exception:
     pass
+
+
+@app.get("/", include_in_schema=False)
+async def serve_index():
+    return FileResponse(str(PUBLIC_DIR / "index.html"))
 
 
 class Message(BaseModel):
