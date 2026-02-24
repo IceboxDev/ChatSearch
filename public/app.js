@@ -117,16 +117,28 @@ function parseFmtA(line) {
   const m = FMT_A.exec(line);
   if (!m) return null;
   const [, time, date, sender, text] = m;
-  return [time.trim(), date.trim(), sender.trim(), text];
+  const parts = date.trim().split(/[\/.\-]/);
+  const normalised = parts.length === 3
+    ? `${parts[0]}/${parts[1]}/${expandYear(parts[2])}`
+    : date.trim();
+  return [time.trim(), normalised, sender.trim(), text];
+}
+
+function expandYear(y) {
+  // '18' → '2018', '99' → '1999', 4-digit years pass through unchanged
+  if (y.length === 2) return (parseInt(y, 10) <= 30 ? '20' : '19') + y;
+  return y;
 }
 
 function parseFmtB(line) {
   const m = FMT_B.exec(line);
   if (!m) return null;
   const [, date, time, sender, text] = m;
-  // Normalise d.m.yy or d-m-yy → m/d/yy for consistent display
+  // Normalise d.m.yy or d-m-yy → m/d/yyyy for consistent display
   const parts = date.split(/[\/.\-]/);
-  const normalised = parts.length === 3 ? `${parts[1]}/${parts[0]}/${parts[2]}` : date;
+  const normalised = parts.length === 3
+    ? `${parts[1]}/${parts[0]}/${expandYear(parts[2])}`
+    : date;
   return [time.trim(), normalised.trim(), sender.trim(), text];
 }
 

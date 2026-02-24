@@ -234,6 +234,12 @@ def _parse_fmt_a(line: str):
     return time.strip(), date.strip(), sender.strip(), text
 
 
+def _expand_year(y: str) -> str:
+    if len(y) == 2:
+        return ("20" if int(y) <= 30 else "19") + y
+    return y
+
+
 def _parse_fmt_b(line: str):
     m = _FMT_B.match(line)
     if not m:
@@ -242,7 +248,7 @@ def _parse_fmt_b(line: str):
     parts = re.split(r"[/.\-]", date)
     if len(parts) == 3:
         d, mo, y = parts
-        date = f"{mo}/{d}/{y}"
+        date = f"{mo}/{d}/{_expand_year(y)}"
     return time.strip(), date.strip(), sender.strip(), text
 
 
