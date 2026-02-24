@@ -376,26 +376,30 @@ function renderChat(data, filename) {
     bubble.className     = 'msg-bubble';
     bubble.dataset.color = colourFor(msg.sender);
 
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+
     // Sender name: incoming only, first message in a run
     if (!isOut && isFirst) {
       const senderEl = document.createElement('span');
       senderEl.className   = 'msg-sender';
       senderEl.textContent = msg.sender;
-      bubble.appendChild(senderEl);
+      body.appendChild(senderEl);
     }
 
-    // Message text (inline so timestamp floats beside it)
+    // Message text (inline so timestamp can sit beside it)
     const textEl = document.createElement('span');
     textEl.className   = `msg-text${msg.is_media ? ' is-media' : ''}`;
     textEl.textContent = msg.is_media ? '📎 Media omitted' : msg.text;
-    bubble.appendChild(textEl);
+    body.appendChild(textEl);
 
-    // Invisible spacer reserves space for the timestamp so text wraps before it
+    // Small spacer so text doesn't touch the timestamp
     const spacer = document.createElement('span');
     spacer.className = 'msg-spacer';
+    bubble.appendChild(body);
     bubble.appendChild(spacer);
 
-    // Footer floated right inside bubble
+    // Footer (timestamp + tick) — sits at end of first row
     const footer = document.createElement('div');
     footer.className = 'msg-footer';
 

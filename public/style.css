@@ -783,9 +783,13 @@ mark.search-hit.current {
 .msg-row.out .msg-tail { right: 0; color: var(--bg-msg-out); }
 .msg-row.in  .msg-tail { left:  0; color: var(--bg-msg-in); }
 
-/* Bubble */
+/* Bubble — flex so short messages don't get a huge gap before timestamp */
 .msg-bubble {
   position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 6px;
   width: fit-content;
   max-width: min(65%, 600px);
   min-width: 60px;
@@ -793,7 +797,20 @@ mark.search-hit.current {
   border-radius: 7.5px;
   word-break: break-word;
   box-shadow: 0 1px 0.5px rgba(0,0,0,0.35);
-  line-height: 0; /* squash gap between inline children */
+  line-height: 0;
+}
+
+/* Body (sender + text) — takes only needed space, wraps */
+.msg-body {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Spacer — small gap between text and timestamp (no longer a fixed 68px) */
+.msg-spacer {
+  flex: 0 0 6px;
+  height: 1px;
+  align-self: flex-end;
 }
 
 /* Tail-side corner is square on the first bubble, rounded on others */
@@ -831,22 +848,13 @@ mark.search-hit.current {
 }
 .msg-text.is-media { color: var(--text-secondary); font-style: italic; }
 
-/* Spacer pushes timestamp to the right without wrapping text awkwardly */
-.msg-spacer {
-  display: inline-block;
-  /* wide enough for time + tick, so text wraps before them */
-  width: 68px;
-  height: 1px;
-  vertical-align: middle;
-}
-
-/* Footer (timestamp + tick) — floated to bottom-right of bubble */
+/* Footer (timestamp + tick) — flex item at end of row */
 .msg-footer {
   display: inline-flex;
   align-items: flex-end;
   gap: 3px;
-  float: right;
-  margin: 2px 0 -3px 4px;
+  flex-shrink: 0;
+  margin: 2px 0 -3px 0;
   position: relative;
   bottom: -2px;
 }
