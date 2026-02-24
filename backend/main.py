@@ -8,19 +8,20 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-# Load .env from the same directory as this file
+# Load .env from the same directory as this file (local dev only)
 load_dotenv(pathlib.Path(__file__).parent / ".env")
 
-_api_key = os.getenv("OPENAI_API_KEY")
-if not _api_key:
-    raise RuntimeError("OPENAI_API_KEY is not set — add it to backend/.env")
-
-openai_client = AsyncOpenAI(api_key=_api_key)
 EMBED_MODEL = "text-embedding-3-small"
+
+
+def _get_openai_client() -> AsyncOpenAI:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+    return AsyncOpenAI(api_key=api_key)
 
 app = FastAPI(title="ChatSearch")
 
@@ -33,8 +34,11 @@ app.add_middleware(
 
 FRONTEND_DIR = pathlib.Path(__file__).parent.parent / "frontend"
 
-# Serve frontend static files
-app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+# Mount static files for local dev; on Vercel, the CDN serves frontend/ directly
+try:
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+except Exception:
+    pass
 
 
 class Message(BaseModel):
@@ -170,11 +174,6 @@ async def parse_chat_file(file: UploadFile = File(...)):
     return result
 
 
-@app.get("/")
-async def serve_index():
-    return FileResponse(str(FRONTEND_DIR / "index.html"))
-
-
 # ── Embedding endpoints ───────────────────────────────────────────────────────
 
 class EmbedRequest(BaseModel):
@@ -193,7 +192,7 @@ async def embed_chunks(req: EmbedRequest):
         raise HTTPException(status_code=400, detail="Too many chunks (max 2048)")
 
     try:
-        response = await openai_client.embeddings.create(
+        response = await _get_openai_client().embeddings.create(
             model=EMBED_MODEL,
             input=req.chunks,
         )
@@ -238,7 +237,7 @@ async def context_search(req: ContextSearchRequest):
         raise HTTPException(status_code=400, detail="chunks and embeddings length mismatch")
 
     try:
-        q_response = await openai_client.embeddings.create(
+        q_response = await _get_openai_client().embeddings.create(
             model=EMBED_MODEL,
             input=[req.query],
         )
