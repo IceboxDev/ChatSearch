@@ -210,7 +210,7 @@ MEDIA_OMITTED = re.compile(r"<[^>]*(?:omitted|attached)[^>]*>", re.IGNORECASE)
 # Both are tried; whichever matches first wins.
 
 _TIME = r"\d{1,2}:\d{2}(?::\d{2})?(?:\u202f?[APap][Mm])?"
-_DATE = r"\d{1,2}/\d{1,2}/\d{2,4}"
+_DATE = r"\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}"
 
 # Format A: [time, date] Sender: text
 _FMT_A = re.compile(
@@ -239,7 +239,7 @@ def _parse_fmt_b(line: str):
     if not m:
         return None
     date, time, sender, text = m.groups()
-    parts = date.split("/")
+    parts = re.split(r"[/.\-]", date)
     if len(parts) == 3:
         d, mo, y = parts
         date = f"{mo}/{d}/{y}"

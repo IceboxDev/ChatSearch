@@ -106,8 +106,9 @@ welcomePanel.addEventListener('drop', e => {
 });
 
 // ── Client-side chat parser (mirrors backend/main.py logic) ──────────────────
+// Dates can be separated by / . or - (e.g. 13.04.18 or 2/24/2026 or 13-04-2018)
 const _TIME   = String.raw`\d{1,2}:\d{2}(?::\d{2})?(?:\u202f?[APap][Mm])?`;
-const _DATE   = String.raw`\d{1,2}/\d{1,2}/\d{2,4}`;
+const _DATE   = String.raw`\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}`;
 const FMT_A   = new RegExp(String.raw`^\[(\s*${_TIME}),\s*(${_DATE})\]\s+([^:]+):\s*(.*)`);
 const FMT_B   = new RegExp(String.raw`^(${_DATE}),\s*(${_TIME})\s+-\s+([^:]+):\s*(.*)`);
 const MEDIA_RE = /<[^>]*(?:omitted|attached)[^>]*>/i;
@@ -123,7 +124,8 @@ function parseFmtB(line) {
   const m = FMT_B.exec(line);
   if (!m) return null;
   const [, date, time, sender, text] = m;
-  const parts = date.split('/');
+  // Normalise d.m.yy or d-m-yy → m/d/yy for consistent display
+  const parts = date.split(/[\/.\-]/);
   const normalised = parts.length === 3 ? `${parts[1]}/${parts[0]}/${parts[2]}` : date;
   return [time.trim(), normalised.trim(), sender.trim(), text];
 }
