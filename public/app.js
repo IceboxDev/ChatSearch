@@ -1,6 +1,6 @@
 'use strict';
 
-import { whatsAppLogo } from '/static/components.js';
+import { whatsAppLogo } from '/components.js';
 
 const API_BASE = '';  // same origin via FastAPI
 

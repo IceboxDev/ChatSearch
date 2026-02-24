@@ -10,7 +10,7 @@
  */
 export function whatsAppLogo(size, alt = 'WhatsApp') {
   const img = document.createElement('img');
-  img.src    = '/static/whatsapp-logo.webp';
+  img.src    = '/whatsapp-logo.webp';
   img.alt    = alt;
   img.width  = size;
   img.height = size;

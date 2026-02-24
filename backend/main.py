@@ -33,31 +33,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PUBLIC_DIR = pathlib.Path(__file__).parent.parent / "public"
+# Local dev only: serve the SPA and static assets
+# On Vercel, public/ is served by the CDN — these routes are never reached
+_PUBLIC = pathlib.Path(__file__).parent.parent / "public"
+if _PUBLIC.exists():
+    @app.get("/", include_in_schema=False)
+    async def _index():
+        return FileResponse(str(_PUBLIC / "index.html"))
 
-# Mount static files at /static — works both locally and on Vercel
-# (Vercel bundles the whole repo into the function, so the path exists)
-try:
-    app.mount("/static", StaticFiles(directory=str(PUBLIC_DIR)), name="static")
-except RuntimeError:
-    pass  # directory missing in some edge envs
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def _favicon():
+        return FileResponse(str(_PUBLIC / "whatsapp-logo.webp"), media_type="image/webp")
 
-
-@app.get("/", include_in_schema=False)
-async def serve_index():
-    index = PUBLIC_DIR / "index.html"
-    if not index.exists():
-        return {"error": "index.html not found"}
-    return FileResponse(str(index))
-
-
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    ico = PUBLIC_DIR / "whatsapp-logo.webp"
-    if ico.exists():
-        return FileResponse(str(ico), media_type="image/webp")
-    return FileResponse(str(ico))
-
+    # Serve all other static files (js, css, webp, …)
+    app.mount("/", StaticFiles(directory=str(_PUBLIC), html=True), name="static")
 
 
 class Message(BaseModel):
