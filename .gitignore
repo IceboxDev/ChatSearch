@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Data — personal chat exports, never commit
+data/
+
+# Secrets
+.env
+*.env
+
+# uv
+.uv/

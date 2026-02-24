@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChatSearch</title>
+  <link rel="icon" type="image/webp" href="/static/whatsapp-logo.webp" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <div id="sidebar-logo"></div>
+        <div id="sidebar-title">ChatSearch</div>
+      </div>
+
+      <div id="chat-list">
+        <div id="upload-area" class="chat-list-empty">
+          <div class="upload-hint-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#8696A0" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <p class="upload-hint-text">Upload a WhatsApp chat export (.txt) to get started</p>
+          <label class="upload-btn" for="file-input">Choose file</label>
+          <input type="file" id="file-input" accept=".txt" hidden />
+          <div id="drop-zone" class="drop-zone">or drop file here</div>
+        </div>
+
+        <div id="chat-item" class="chat-item hidden">
+          <div class="chat-item-avatar" id="chat-item-avatar"></div>
+          <div class="chat-item-info">
+            <div class="chat-item-name" id="chat-item-name">Chat</div>
+            <div class="chat-item-preview" id="chat-item-preview">...</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main panel -->
+    <main id="main">
+      <!-- Welcome / empty state -->
+      <div id="welcome-panel">
+        <div id="welcome-content">
+          <div id="welcome-icon"></div>
+          <h1>ChatSearch</h1>
+          <p>Upload a WhatsApp chat export to view your conversation</p>
+
+          <div id="name-field">
+            <label for="my-name-input" class="name-label">Your name in the chat</label>
+            <input type="text" id="my-name-input" class="name-input" placeholder="e.g. Mantas Kandratavičius" autocomplete="off" spellcheck="false" />
+            <p class="name-hint">Used to tell your messages apart from others</p>
+          </div>
+
+          <label class="upload-btn-main" for="file-input-main">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Upload chat export (.txt)
+          </label>
+          <input type="file" id="file-input-main" accept=".txt" hidden />
+
+          <p class="welcome-sub">Your messages stay private — nothing is stored on any server</p>
+          <p class="built-by">Crafted by <span>Mantas</span></p>
+        </div>
+      </div>
+
+      <!-- Chat panel (hidden until chat loaded) -->
+      <div id="chat-panel" class="hidden">
+        <div id="chat-header">
+          <div id="chat-header-avatar"></div>
+          <div id="chat-header-info">
+            <div id="chat-header-name">Chat</div>
+            <div id="chat-header-sub"></div>
+          </div>
+          <button id="search-btn" title="Search messages" aria-label="Search messages">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="17" y1="17" x2="22" y2="22"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Search panel -->
+        <div id="search-panel" class="hidden">
+          <div id="search-mode-bar">
+            <button class="search-mode-btn active" data-mode="literal">Literal</button>
+            <button class="search-mode-btn" data-mode="context">Context aware</button>
+          </div>
+          <div id="search-input-row">
+            <svg id="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="17" y1="17" x2="22" y2="22"/>
+            </svg>
+            <input type="text" id="search-input" placeholder="Search messages…" autocomplete="off" spellcheck="false" />
+            <span id="search-count"></span>
+            <button id="search-prev" title="Previous result" aria-label="Previous">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+            </button>
+            <button id="search-next" title="Next result" aria-label="Next">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button id="search-close" title="Close search" aria-label="Close">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+
+          <!-- Context-aware indexing progress (shown during first-time embedding) -->
+          <div id="context-progress" class="hidden">
+            <div id="context-progress-bar"><div id="context-progress-fill"></div></div>
+            <span id="context-progress-label">Indexing chat…</span>
+          </div>
+
+          <!-- Context-aware results list -->
+          <div id="context-results" class="hidden"></div>
+        </div>
+
+        <div id="messages-container">
+          <div id="messages-list"></div>
+        </div>
+      </div>
+
+      <!-- Loading overlay -->
+      <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <p>Parsing chat…</p>
+      </div>
+
+      <!-- Participant picker (shown when name doesn't match) -->
+      <div id="picker-overlay" class="hidden">
+        <div id="picker-modal">
+          <p id="picker-title">Who are you in this chat?</p>
+          <p id="picker-sub">Your name wasn't found — pick yourself from the list</p>
+          <div id="picker-list"></div>
+          <button id="picker-skip">Show without sides</button>
+        </div>
+      </div>
+
+      <!-- Error toast -->
+      <div id="error-toast" class="hidden"></div>
+    </main>
+  </div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

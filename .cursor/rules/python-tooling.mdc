@@ -1,0 +1,24 @@
+---
+description: Python tooling conventions for this project
+alwaysApply: true
+---
+
+# Python Tooling
+
+This project uses **uv** as the Python package manager and runtime. Never use bare `python` or `pip` commands in the terminal.
+
+## Running Python code
+
+```bash
+# ✅ GOOD
+uv run python script.py
+uv run uvicorn app:app --reload
+uv add some-package
+
+# ❌ BAD
+python script.py
+pip install some-package
+```
+
+- Do NOT create or rely on `.python-version` files — uv manages the Python version via `pyproject.toml`.
+- Do NOT use `virtualenv`, `venv`, or `conda` directly.
