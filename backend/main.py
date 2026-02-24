@@ -224,8 +224,9 @@ MEDIA_OMITTED = re.compile(r"<[^>]*(?:omitted|attached)[^>]*>", re.IGNORECASE)
 #
 # Format A (bracketed, US date):  [09:09, 2/24/2026] Sender: text
 # Format B (no brackets, EU date): 03/12/2025, 15:29 - Sender: text
+# Format C (iOS export): [17.05.24, 03:40:31] Sender: text  (date first in brackets; some lines have leading U+200E)
 #
-# Both are tried; whichever matches first wins.
+# All are tried; whichever format dominates the file is used first; others still match for mixed/continuation lines.
 
 _TIME = r"\d{1,2}:\d{2}(?::\d{2})?(?:\u202f?[APap][Mm])?"
 _DATE = r"\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}"
@@ -237,6 +238,10 @@ _FMT_A = re.compile(
 # Format B: date, time - Sender: text
 _FMT_B = re.compile(
     rf"^({_DATE}),\s*({_TIME})\s+-\s+([^:]+):\s*(.*)"
+)
+# Format C (iOS): optional LTR mark then [date, time] Sender: text
+_FMT_C = re.compile(
+    rf"^[\u200e\u200f\s]*\[({_DATE}),\s*({_TIME})\]\s+([^:]+):\s*(.*)"
 )
 # Format B system line (no sender after dash): date, time - system text
 _FMT_B_SYS = re.compile(
@@ -270,10 +275,26 @@ def _parse_fmt_b(line: str):
     return time.strip(), date.strip(), sender.strip(), text
 
 
+def _parse_fmt_c(line: str):
+    """iOS export: [date, time] Sender: text (date first in brackets)."""
+    m = _FMT_C.match(line)
+    if not m:
+        return None
+    date, time, sender, text = m.groups()
+    parts = re.split(r"[/.\-]", date.strip())
+    if len(parts) == 3:
+        d, mo, y = parts
+        date = f"{mo}/{d}/{_expand_year(y)}"
+    return time.strip(), date.strip(), sender.strip(), text
+
+
 def _detect_dominant_format(lines: list[str]) -> str:
-    """Return 'A' or 'B' depending on which format appears more in the file."""
+    """Return 'A', 'B', or 'C' depending on which format appears most in the file."""
     a = sum(1 for l in lines if _FMT_A.match(l))
     b = sum(1 for l in lines if _FMT_B.match(l))
+    c = sum(1 for l in lines if _FMT_C.match(l))
+    if c >= a and c >= b:
+        return "C"
     return "A" if a >= b else "B"
 
 
@@ -282,33 +303,35 @@ def parse_chat(content: str) -> ParsedChat:
     lines = content.split("\n")
 
     dominant = _detect_dominant_format(lines)
-    parse_primary   = _parse_fmt_a if dominant == "A" else _parse_fmt_b
-    parse_secondary = _parse_fmt_b if dominant == "A" else _parse_fmt_a
+    parsers = [_parse_fmt_a, _parse_fmt_b, _parse_fmt_c]
+    primary_idx = {"A": 0, "B": 1, "C": 2}[dominant]
+    parse_primary = parsers[primary_idx]
+    parse_secondary = parsers[(primary_idx + 1) % 3]
+    parse_tertiary = parsers[(primary_idx + 2) % 3]
 
     messages: list[Message] = []
     participants: set[str] = set()
     current: Optional[dict] = None
 
     for line in lines:
-        parsed = parse_primary(line)
+        parsed = parse_primary(line) or parse_secondary(line) or parse_tertiary(line)
         if parsed:
             if current:
                 messages.append(Message(**current))
             time, date, sender, text = parsed
             participants.add(sender)
+            text = text.strip().lstrip("\u200e\u200f")  # iOS sometimes puts LTR mark in message body
             current = {
                 "time": time,
                 "date": date,
                 "sender": sender,
-                "text": text.strip(),
+                "text": text,
                 "is_media": bool(MEDIA_OMITTED.search(text)),
             }
         elif current is not None:
             # Could be a genuine multiline continuation OR a pasted foreign-format message.
-            # Either way, append as plain text to the current message.
             if line.strip():
-                # If it looks like a secondary-format message, label it clearly
-                sec = parse_secondary(line)
+                sec = parse_secondary(line) or parse_tertiary(line)
                 if sec:
                     _, _, sec_sender, sec_text = sec
                     current["text"] += f"\n{sec_sender}: {sec_text.strip()}"

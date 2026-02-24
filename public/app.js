@@ -111,10 +111,12 @@ welcomePanel.addEventListener('drop', e => {
 
 // ── Client-side chat parser (mirrors backend/main.py logic) ──────────────────
 // Dates can be separated by / . or - (e.g. 13.04.18 or 2/24/2026 or 13-04-2018)
+// Format A: [time, date] Sender. Format B: date, time - Sender. Format C (iOS): [date, time] Sender (optional leading U+200E)
 const _TIME   = String.raw`\d{1,2}:\d{2}(?::\d{2})?(?:\u202f?[APap][Mm])?`;
 const _DATE   = String.raw`\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}`;
 const FMT_A   = new RegExp(String.raw`^\[(\s*${_TIME}),\s*(${_DATE})\]\s+([^:]+):\s*(.*)`);
 const FMT_B   = new RegExp(String.raw`^(${_DATE}),\s*(${_TIME})\s+-\s+([^:]+):\s*(.*)`);
+const FMT_C   = new RegExp(String.raw`^[\u200e\u200f\s]*\[(${_DATE}),\s*(${_TIME})\]\s+([^:]+):\s*(.*)`);
 const MEDIA_RE = /<[^>]*(?:omitted|attached)[^>]*>/i;
 
 function parseFmtA(line) {
@@ -146,31 +148,48 @@ function parseFmtB(line) {
   return [time.trim(), normalised.trim(), sender.trim(), text];
 }
 
+function parseFmtC(line) {
+  const m = FMT_C.exec(line);
+  if (!m) return null;
+  const [, date, time, sender, text] = m;
+  const parts = date.trim().split(/[\/.\-]/);
+  const normalised = parts.length === 3
+    ? `${parts[1]}/${parts[0]}/${expandYear(parts[2])}`
+    : date.trim();
+  return [time.trim(), normalised, sender.trim(), text];
+}
+
 function parseChat(content) {
   content = content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = content.split('\n');
 
-  let countA = 0, countB = 0;
+  let countA = 0, countB = 0, countC = 0;
   for (const l of lines) {
     if (FMT_A.test(l)) countA++;
     else if (FMT_B.test(l)) countB++;
+    else if (FMT_C.test(l)) countC++;
   }
-  const parsePrimary   = countA >= countB ? parseFmtA : parseFmtB;
-  const parseSecondary = countA >= countB ? parseFmtB : parseFmtA;
+  const dominant = (countC >= countA && countC >= countB) ? 'C' : (countA >= countB ? 'A' : 'B');
+  const parsers = [parseFmtA, parseFmtB, parseFmtC];
+  const primaryIdx = { A: 0, B: 1, C: 2 }[dominant];
+  const parsePrimary = parsers[primaryIdx];
+  const parseSecondary = parsers[(primaryIdx + 1) % 3];
+  const parseTertiary = parsers[(primaryIdx + 2) % 3];
 
   const messages = [];
   const participantSet = new Set();
   let current = null;
 
   for (const line of lines) {
-    const parsed = parsePrimary(line);
+    const parsed = parsePrimary(line) || parseSecondary(line) || parseTertiary(line);
     if (parsed) {
       if (current) messages.push(current);
       const [time, date, sender, text] = parsed;
       participantSet.add(sender);
-      current = { time, date, sender, text: text.trim(), is_media: MEDIA_RE.test(text) };
+      const textClean = text.trim().replace(/^[\u200e\u200f]+/, '');
+      current = { time, date, sender, text: textClean, is_media: MEDIA_RE.test(text) };
     } else if (current !== null && line.trim()) {
-      const sec = parseSecondary(line);
+      const sec = parseSecondary(line) || parseTertiary(line);
       if (sec) {
         const [,, secSender, secText] = sec;
         current.text += `\n${secSender}: ${secText.trim()}`;

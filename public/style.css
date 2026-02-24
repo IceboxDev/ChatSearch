@@ -786,6 +786,7 @@ mark.search-hit.current {
 /* Bubble */
 .msg-bubble {
   position: relative;
+  width: fit-content;
   max-width: min(65%, 600px);
   min-width: 60px;
   padding: 6px 7px 8px 9px;
