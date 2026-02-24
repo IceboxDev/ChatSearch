@@ -51,10 +51,14 @@ let pendingData   = null;   // held while picker is open
 let pendingFile   = null;
 
 // Context search state
-let currentRawBytes  = null;  // ArrayBuffer of the uploaded .txt file
-let currentChunks    = null;  // string[] — overlapping message chunks
-let currentEmbeddings = null; // float[][] — one vector per chunk (from cache or API)
-let searchMode       = 'literal'; // 'literal' | 'context'
+let currentRawBytes   = null;  // ArrayBuffer of the uploaded .txt file
+let currentChunks     = null;  // string[] — overlapping message chunks
+let currentEmbeddings = null;  // float[][] — one vector per chunk (from cache or API)
+let searchMode        = 'literal'; // 'literal' | 'context' | 'ask'
+
+// Ask mode state
+let askHistory  = [];   // {role, content}[] — full conversation
+let askStreaming = false;
 
 // ── Colour assignment for senders ─────────────────────────────────────────────
 const senderColourMap = new Map();
@@ -454,6 +458,8 @@ function closeSearch() {
   const cr = document.getElementById('context-results');
   cr.innerHTML = '';
   cr.classList.add('hidden');
+  // Hide ask panel (preserve history)
+  document.getElementById('ask-panel').classList.add('hidden');
 }
 
 searchBtn.addEventListener('click', () => {
@@ -611,29 +617,40 @@ searchModeBtns.forEach(btn => {
     searchMode = mode;
     searchModeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
 
+    // Always clear literal search state when leaving it
+    clearSearchHighlights();
+    searchHits   = [];
+    searchCursor = -1;
+    searchCount.textContent = '';
+    searchCount.classList.remove('no-results');
+
+    // Hide all mode-specific panels first
+    contextResults.classList.add('hidden');
+    contextProgress.classList.add('hidden');
+    document.getElementById('ask-panel').classList.add('hidden');
+    document.getElementById('search-input-row').classList.remove('hidden');
+
     if (mode === 'literal') {
-      // Switch to literal: show normal input row controls, hide context UI
+      searchInput.value = '';
       searchInput.placeholder = 'Search messages…';
       searchPrev.classList.remove('hidden');
       searchNext.classList.remove('hidden');
-      contextResults.classList.add('hidden');
-      contextProgress.classList.add('hidden');
-      clearContextResults();
-      // Re-run any existing query as literal
-      const q = searchInput.value.trim();
-      if (q) runSearch(q);
-    } else {
-      // Switch to context: hide nav arrows, clear literal highlights
-      clearSearchHighlights();
-      searchHits   = [];
-      searchCursor = -1;
-      searchCount.textContent = '';
-      searchCount.classList.remove('no-results');
+      searchInput.focus();
+
+    } else if (mode === 'context') {
+      searchInput.value = '';
+      searchInput.placeholder = 'Search by meaning…';
       searchPrev.classList.add('hidden');
       searchNext.classList.add('hidden');
-      searchInput.placeholder = 'Ask anything about the chat…';
       searchInput.focus();
-      // Trigger indexing if not done yet
+      ensureEmbeddings();
+
+    } else if (mode === 'ask') {
+      // Hide the shared input row — ask has its own composer
+      document.getElementById('search-input-row').classList.add('hidden');
+      document.getElementById('ask-panel').classList.remove('hidden');
+      document.getElementById('ask-input').focus();
+      // Kick off embedding silently so it's ready when the user sends a message
       ensureEmbeddings();
     }
   });
@@ -952,4 +969,196 @@ searchInput.addEventListener('keydown', e => {
     }
   }
 });
+
+// ── Ask mode ──────────────────────────────────────────────────────────────────
+const askPanel    = document.getElementById('ask-panel');
+const askLog      = document.getElementById('ask-log');
+const askInput    = document.getElementById('ask-input');
+const askSend     = document.getElementById('ask-send');
+const askNewChat  = document.getElementById('ask-new-chat');
+const askRagStatus = document.getElementById('ask-rag-status');
+
+const ASK_TOP_K = 5;  // chunks retrieved per question
+
+// Auto-grow the textarea
+askInput.addEventListener('input', () => {
+  askInput.style.height = 'auto';
+  askInput.style.height = Math.min(askInput.scrollHeight, 120) + 'px';
+});
+
+// Send on Enter (Shift+Enter inserts newline)
+askInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendAskMessage();
+  }
+});
+
+askSend.addEventListener('click', sendAskMessage);
+
+askNewChat.addEventListener('click', () => {
+  askHistory = [];
+  askLog.innerHTML = '';
+  askRagStatus.textContent = '';
+  askInput.focus();
+});
+
+function appendAskBubble(role, text = '', streaming = false) {
+  const turn = document.createElement('div');
+  turn.className = `ask-turn ${role}`;
+
+  const label = document.createElement('div');
+  label.className   = 'ask-label';
+  label.textContent = role === 'user' ? 'You' : 'Assistant';
+  turn.appendChild(label);
+
+  const bubble = document.createElement('div');
+  bubble.className = `ask-bubble${streaming ? ' streaming' : ''}`;
+  bubble.textContent = text;
+  turn.appendChild(bubble);
+
+  askLog.appendChild(turn);
+  askLog.scrollTop = askLog.scrollHeight;
+  return bubble;
+}
+
+function appendSourcePills(chunkResults) {
+  if (!chunkResults.length) return;
+  const lastTurn = askLog.lastElementChild;
+  if (!lastTurn) return;
+
+  const sources = document.createElement('div');
+  sources.className = 'ask-sources';
+
+  chunkResults.forEach(r => {
+    const lines   = r.chunk_text.split('\n').filter(Boolean);
+    const first   = lines[0] || '';
+    const match   = first.match(/^\[(.+?)\]\s+([^:]+):/);
+    const label   = match ? `${match[2].trim()} · ${match[1].trim()}` : `Chunk ${r.chunk_index + 1}`;
+
+    const pill = document.createElement('button');
+    pill.className   = 'ask-source-pill';
+    pill.textContent = label;
+    pill.title       = 'Jump to this part of the chat';
+    pill.addEventListener('click', () => scrollToChunk(r.chunk_index));
+    sources.appendChild(pill);
+  });
+
+  lastTurn.appendChild(sources);
+}
+
+async function retrieveRagChunks(query) {
+  if (!currentEmbeddings || !currentChunks) return [];
+
+  try {
+    const res = await fetch(`${API_BASE}/api/embed/query`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ query }),
+    });
+    if (!res.ok) return [];
+    const { embedding: qVec } = await res.json();
+
+    return currentEmbeddings
+      .map((emb, i) => ({ chunk_index: i, chunk_text: currentChunks[i], score: cosine(qVec, emb) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, ASK_TOP_K);
+  } catch {
+    return [];
+  }
+}
+
+async function sendAskMessage() {
+  const text = askInput.value.trim();
+  if (!text || askStreaming) return;
+
+  askStreaming = true;
+  askSend.disabled = true;
+  askInput.value   = '';
+  askInput.style.height = 'auto';
+
+  // Show user bubble
+  appendAskBubble('user', text);
+  askHistory.push({ role: 'user', content: text });
+
+  // Retrieve RAG context for this turn
+  let ragChunks = [];
+  if (currentEmbeddings) {
+    askRagStatus.textContent = 'Retrieving context…';
+    const results = await retrieveRagChunks(text);
+    ragChunks = results.map(r => r.chunk_text);
+    askRagStatus.textContent = ragChunks.length
+      ? `${ragChunks.length} excerpt${ragChunks.length > 1 ? 's' : ''} retrieved`
+      : '';
+    // Store results for source pills
+    window._lastAskRagResults = results;
+  } else {
+    askRagStatus.textContent = 'No index yet — answering without context';
+    window._lastAskRagResults = [];
+  }
+
+  // Show assistant bubble (streaming)
+  const bubble = appendAskBubble('assistant', '', true);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        messages:   askHistory,
+        rag_chunks: ragChunks,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Chat failed.' }));
+      throw new Error(err.detail || 'Chat failed.');
+    }
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText  = '';
+    let buffer    = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break;
+        try {
+          const { content, error } = JSON.parse(payload);
+          if (error) throw new Error(error);
+          if (content) {
+            fullText += content;
+            bubble.textContent = fullText;
+            askLog.scrollTop = askLog.scrollHeight;
+          }
+        } catch { /* skip malformed SSE lines */ }
+      }
+    }
+
+    bubble.classList.remove('streaming');
+    askHistory.push({ role: 'assistant', content: fullText });
+    appendSourcePills(window._lastAskRagResults || []);
+    askRagStatus.textContent = '';
+
+  } catch (err) {
+    bubble.classList.remove('streaming');
+    bubble.textContent = `Error: ${err.message}`;
+    bubble.style.color = '#CF6679';
+    askRagStatus.textContent = '';
+  } finally {
+    askStreaming = false;
+    askSend.disabled = false;
+    askInput.focus();
+    askLog.scrollTop = askLog.scrollHeight;
+  }
+}
 

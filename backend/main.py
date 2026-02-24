@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import re
@@ -6,7 +7,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -138,6 +139,7 @@ _FALLBACK_HTML = """<!DOCTYPE html>
           <div id="search-mode-bar">
             <button class="search-mode-btn active" data-mode="literal">Literal</button>
             <button class="search-mode-btn" data-mode="context">Context aware</button>
+            <button class="search-mode-btn" data-mode="ask">Ask</button>
           </div>
           <div id="search-input-row">
             <svg id="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -161,6 +163,22 @@ _FALLBACK_HTML = """<!DOCTYPE html>
             <span id="context-progress-label">Indexing chat…</span>
           </div>
           <div id="context-results" class="hidden"></div>
+          <div id="ask-panel" class="hidden">
+            <div id="ask-log"></div>
+            <div id="ask-composer">
+              <textarea id="ask-input" placeholder="Ask anything about the chat…" rows="1" autocomplete="off" spellcheck="true"></textarea>
+              <button id="ask-send" title="Send" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              </button>
+            </div>
+            <div id="ask-footer">
+              <button id="ask-new-chat">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New conversation
+              </button>
+              <span id="ask-rag-status"></span>
+            </div>
+          </div>
         </div>
         <div id="messages-container">
           <div id="messages-list"></div>
@@ -375,3 +393,75 @@ async def embed_query(req: QueryEmbedRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"OpenAI error: {e}")
     return QueryEmbedResponse(embedding=response.data[0].embedding)
+
+
+# ── Chat / Q-A endpoint ───────────────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    role: str   # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]          # full conversation so far
+    rag_chunks: list[str] = []           # top-K retrieved chunk texts for this turn
+
+
+_SYSTEM_PROMPT = """You are a helpful assistant answering questions about a WhatsApp chat export.
+The user has retrieved the most relevant excerpts from the chat for each question.
+Use the provided excerpts as your primary source. Be concise, direct, and conversational.
+When quoting messages include the sender's name. If the excerpts don't contain enough information, say so honestly."""
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    """Streaming chat completion with optional RAG context injected per turn."""
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+
+    # Build the OpenAI messages list
+    oai_messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
+
+    # For all turns except the last, pass them verbatim
+    for msg in req.messages[:-1]:
+        oai_messages.append({"role": msg.role, "content": msg.content})
+
+    # Inject RAG context into the final user turn
+    last = req.messages[-1]
+    if req.rag_chunks:
+        context_block = "\n\n---\n".join(req.rag_chunks)
+        augmented = (
+            f"Relevant excerpts from the chat:\n\n{context_block}\n\n"
+            f"---\n\nUser question: {last.content}"
+        )
+    else:
+        augmented = last.content
+
+    oai_messages.append({"role": "user", "content": augmented})
+
+    async def generate():
+        try:
+            stream = await _get_openai_client().chat.completions.create(
+                model="gpt-5-mini",
+                messages=oai_messages,
+                stream=True,
+                max_tokens=1024,
+                temperature=0.4,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    # SSE format: data: <json>\n\n
+                    yield f"data: {json.dumps({'content': delta})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -92,6 +92,7 @@
           <div id="search-mode-bar">
             <button class="search-mode-btn active" data-mode="literal">Literal</button>
             <button class="search-mode-btn" data-mode="context">Context aware</button>
+            <button class="search-mode-btn" data-mode="ask">Ask</button>
           </div>
           <div id="search-input-row">
             <svg id="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -119,6 +120,24 @@
 
           <!-- Context-aware results list -->
           <div id="context-results" class="hidden"></div>
+
+          <!-- Ask mode panel -->
+          <div id="ask-panel" class="hidden">
+            <div id="ask-log"></div>
+            <div id="ask-composer">
+              <textarea id="ask-input" placeholder="Ask anything about the chat…" rows="1" autocomplete="off" spellcheck="true"></textarea>
+              <button id="ask-send" title="Send" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+              </button>
+            </div>
+            <div id="ask-footer">
+              <button id="ask-new-chat">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New conversation
+              </button>
+              <span id="ask-rag-status"></span>
+            </div>
+          </div>
         </div>
 
         <div id="messages-container">
