@@ -1,14 +1,14 @@
 import math
 import os
-import re
 import pathlib
+import re
 from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -35,16 +35,29 @@ app.add_middleware(
 
 PUBLIC_DIR = pathlib.Path(__file__).parent.parent / "public"
 
-# Serve static assets; public/ is used both locally and on Vercel
+# Mount static files at /static — works both locally and on Vercel
+# (Vercel bundles the whole repo into the function, so the path exists)
 try:
     app.mount("/static", StaticFiles(directory=str(PUBLIC_DIR)), name="static")
-except Exception:
-    pass
+except RuntimeError:
+    pass  # directory missing in some edge envs
 
 
 @app.get("/", include_in_schema=False)
 async def serve_index():
-    return FileResponse(str(PUBLIC_DIR / "index.html"))
+    index = PUBLIC_DIR / "index.html"
+    if not index.exists():
+        return {"error": "index.html not found"}
+    return FileResponse(str(index))
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    ico = PUBLIC_DIR / "whatsapp-logo.webp"
+    if ico.exists():
+        return FileResponse(str(ico), media_type="image/webp")
+    return FileResponse(str(ico))
+
 
 
 class Message(BaseModel):
