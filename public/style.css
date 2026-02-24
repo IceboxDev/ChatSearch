@@ -739,6 +739,38 @@ mark.search-hit.current {
 #ask-send:hover { background: #06CF9C; }
 #ask-send:disabled { background: #374045; cursor: default; }
 
+/* Thinking / loading bar (Ask mode) */
+#ask-thinking {
+  padding: 8px 12px 10px;
+  background: #111B21;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#ask-thinking.hidden { display: none; }
+#ask-thinking-bar {
+  height: 4px;
+  background: #2A3942;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+#ask-thinking-fill {
+  height: 100%;
+  width: 40%;
+  background: #00A884;
+  border-radius: 2px;
+  animation: ask-thinking-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ask-thinking-pulse {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(350%); }
+}
+#ask-thinking-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* Footer: new chat button + rag status */
 #ask-footer {
   display: flex;

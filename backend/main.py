@@ -165,6 +165,10 @@ _FALLBACK_HTML = """<!DOCTYPE html>
           <div id="context-results" class="hidden"></div>
           <div id="ask-panel" class="hidden">
             <div id="ask-log"></div>
+            <div id="ask-thinking" class="hidden">
+              <div id="ask-thinking-bar"><div id="ask-thinking-fill"></div></div>
+              <span id="ask-thinking-label">Thinking…</span>
+            </div>
             <div id="ask-composer">
               <textarea id="ask-input" placeholder="Ask anything about the chat…" rows="1" autocomplete="off" spellcheck="true"></textarea>
               <button id="ask-send" title="Send" aria-label="Send">

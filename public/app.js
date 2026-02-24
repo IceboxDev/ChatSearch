@@ -1010,8 +1010,11 @@ const askInput    = document.getElementById('ask-input');
 const askSend     = document.getElementById('ask-send');
 const askNewChat  = document.getElementById('ask-new-chat');
 const askRagStatus = document.getElementById('ask-rag-status');
+const askThinking = document.getElementById('ask-thinking');
+const askThinkingLabel = document.getElementById('ask-thinking-label');
 
-const ASK_TOP_K = 20;  // chunks retrieved per question
+const ASK_TOP_K = 20;   // chunks per query
+const ASK_CONTEXT_MAX = 50;  // max chunks sent to model (after merging 5×20 unique)
 
 // Auto-grow the textarea
 askInput.addEventListener('input', () => {
@@ -1144,8 +1147,7 @@ async function expandRagQueries(question) {
 }
 
 /** Merge multiple RAG result lists by chunk_index, keeping max score per chunk.
- *  Deduplicates so the same chunk is never sent twice (at most 100 unique chunks from 5×20);
- *  returns top ASK_TOP_K for the API. */
+ *  Returns all unique chunks (up to 5×20); caller slices to ASK_CONTEXT_MAX for the API. */
 function mergeRagResults(resultLists) {
   const byIndex = new Map(); // chunk_index -> { chunk_index, chunk_text, score }
   for (const list of resultLists) {
@@ -1156,9 +1158,7 @@ function mergeRagResults(resultLists) {
       }
     }
   }
-  return Array.from(byIndex.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, ASK_TOP_K);
+  return Array.from(byIndex.values()).sort((a, b) => b.score - a.score);
 }
 
 async function sendAskMessage() {
@@ -1177,17 +1177,23 @@ async function sendAskMessage() {
   // Retrieve RAG context for this turn
   let ragChunks = [];
   if (currentEmbeddings) {
-    askRagStatus.textContent = 'Generating search queries…';
+    askThinking.classList.remove('hidden');
+    askThinkingLabel.textContent = 'Generating search queries…';
     const queries = await expandRagQueries(text);
     const ragQueries = queries.length === 5 ? queries : [text];
-    askRagStatus.textContent = 'Retrieving context…';
+    askThinkingLabel.textContent = 'Searching chat…';
     const resultLists = await Promise.all(ragQueries.map(q => retrieveRagChunks(q)));
-    const results = mergeRagResults(resultLists);
+    const merged = mergeRagResults(resultLists);
+    const results = merged.slice(0, ASK_CONTEXT_MAX);
     ragChunks = results.map(r => r.chunk_text);
-    askRagStatus.textContent = ragChunks.length
-      ? `${ragChunks.length} excerpt${ragChunks.length > 1 ? 's' : ''} retrieved`
-      : '';
-    // Store results for source pills
+    askThinkingLabel.textContent = 'Answering…';
+    if (merged.length > results.length) {
+      askRagStatus.textContent = `${merged.length} unique → ${results.length} used`;
+    } else {
+      askRagStatus.textContent = ragChunks.length
+        ? `${ragChunks.length} excerpt${ragChunks.length > 1 ? 's' : ''} used`
+        : '';
+    }
     window._lastAskRagResults = results;
   } else {
     askRagStatus.textContent = 'No index yet — answering without context';
@@ -1281,6 +1287,7 @@ async function sendAskMessage() {
     bubble.style.color = '#CF6679';
     askRagStatus.textContent = '';
   } finally {
+    askThinking.classList.add('hidden');
     askStreaming = false;
     askSend.disabled = false;
     askInput.focus();
