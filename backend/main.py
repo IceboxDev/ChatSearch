@@ -7,7 +7,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -33,20 +33,158 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Local dev only: serve the SPA and static assets
-# On Vercel, public/ is served by the CDN — these routes are never reached
 _PUBLIC = pathlib.Path(__file__).parent.parent / "public"
+
+# Read index.html once at startup (available locally; on Vercel the CDN serves
+# static assets but the function still handles / so we need the HTML here too)
+_INDEX_FILE = _PUBLIC / "index.html"
+
+
+@app.get("/", include_in_schema=False)
+async def _index():
+    if _INDEX_FILE.exists():
+        return FileResponse(str(_INDEX_FILE))
+    return HTMLResponse(_FALLBACK_HTML)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def _favicon():
+    ico = _PUBLIC / "whatsapp-logo.webp"
+    return FileResponse(str(ico), media_type="image/webp") if ico.exists() else HTMLResponse("", status_code=404)
+
+
+# Local dev: mount public/ so JS/CSS/assets are served by uvicorn too
 if _PUBLIC.exists():
-    @app.get("/", include_in_schema=False)
-    async def _index():
-        return FileResponse(str(_PUBLIC / "index.html"))
-
-    @app.get("/favicon.ico", include_in_schema=False)
-    async def _favicon():
-        return FileResponse(str(_PUBLIC / "whatsapp-logo.webp"), media_type="image/webp")
-
-    # Serve all other static files (js, css, webp, …)
     app.mount("/", StaticFiles(directory=str(_PUBLIC), html=True), name="static")
+
+
+_FALLBACK_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChatSearch</title>
+  <link rel="icon" type="image/webp" href="/whatsapp-logo.webp" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <div id="sidebar-logo"></div>
+        <div id="sidebar-title">ChatSearch</div>
+      </div>
+      <div id="chat-list">
+        <div id="upload-area" class="chat-list-empty">
+          <div class="upload-hint-icon">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#8696A0" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <p class="upload-hint-text">Upload a WhatsApp chat export (.txt) to get started</p>
+          <label class="upload-btn" for="file-input">Choose file</label>
+          <input type="file" id="file-input" accept=".txt" hidden />
+          <div id="drop-zone" class="drop-zone">or drop file here</div>
+        </div>
+        <div id="chat-item" class="chat-item hidden">
+          <div class="chat-item-avatar" id="chat-item-avatar"></div>
+          <div class="chat-item-info">
+            <div class="chat-item-name" id="chat-item-name">Chat</div>
+            <div class="chat-item-preview" id="chat-item-preview">...</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <main id="main">
+      <div id="welcome-panel">
+        <div id="welcome-content">
+          <div id="welcome-icon"></div>
+          <h1>ChatSearch</h1>
+          <p>Upload a WhatsApp chat export to view your conversation</p>
+          <div id="name-field">
+            <label for="my-name-input" class="name-label">Your name in the chat</label>
+            <input type="text" id="my-name-input" class="name-input" placeholder="e.g. Mantas Kandratavičius" autocomplete="off" spellcheck="false" />
+            <p class="name-hint">Used to tell your messages apart from others</p>
+          </div>
+          <label class="upload-btn-main" for="file-input-main">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Upload chat export (.txt)
+          </label>
+          <input type="file" id="file-input-main" accept=".txt" hidden />
+          <p class="welcome-sub">Your messages stay private — nothing is stored on any server</p>
+          <p class="built-by">Crafted by <span>Mantas</span></p>
+        </div>
+      </div>
+      <div id="chat-panel" class="hidden">
+        <div id="chat-header">
+          <div id="chat-header-avatar"></div>
+          <div id="chat-header-info">
+            <div id="chat-header-name">Chat</div>
+            <div id="chat-header-sub"></div>
+          </div>
+          <button id="search-btn" title="Search messages" aria-label="Search messages">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="17" y1="17" x2="22" y2="22"/>
+            </svg>
+          </button>
+        </div>
+        <div id="search-panel" class="hidden">
+          <div id="search-mode-bar">
+            <button class="search-mode-btn active" data-mode="literal">Literal</button>
+            <button class="search-mode-btn" data-mode="context">Context aware</button>
+          </div>
+          <div id="search-input-row">
+            <svg id="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="17" y1="17" x2="22" y2="22"/>
+            </svg>
+            <input type="text" id="search-input" placeholder="Search messages…" autocomplete="off" spellcheck="false" />
+            <span id="search-count"></span>
+            <button id="search-prev" title="Previous result" aria-label="Previous">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+            </button>
+            <button id="search-next" title="Next result" aria-label="Next">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button id="search-close" title="Close search" aria-label="Close">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div id="context-progress" class="hidden">
+            <div id="context-progress-bar"><div id="context-progress-fill"></div></div>
+            <span id="context-progress-label">Indexing chat…</span>
+          </div>
+          <div id="context-results" class="hidden"></div>
+        </div>
+        <div id="messages-container">
+          <div id="messages-list"></div>
+        </div>
+      </div>
+      <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <p>Parsing chat…</p>
+      </div>
+      <div id="picker-overlay" class="hidden">
+        <div id="picker-modal">
+          <p id="picker-title">Who are you in this chat?</p>
+          <p id="picker-sub">Your name wasn't found — pick yourself from the list</p>
+          <div id="picker-list"></div>
+          <button id="picker-skip">Show without sides</button>
+        </div>
+      </div>
+      <div id="error-toast" class="hidden"></div>
+    </main>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>"""
 
 
 class Message(BaseModel):
