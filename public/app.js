@@ -1060,8 +1060,18 @@ function appendSourcePills(chunkResults) {
   const lastTurn = askLog.lastElementChild;
   if (!lastTurn) return;
 
+  const n = chunkResults.length;
   const sources = document.createElement('div');
   sources.className = 'ask-sources';
+
+  const summaryBtn = document.createElement('button');
+  summaryBtn.className = 'ask-sources-summary';
+  summaryBtn.textContent = `${n} source${n !== 1 ? 's' : ''}`;
+  summaryBtn.title = 'Show sources';
+  summaryBtn.setAttribute('aria-expanded', 'false');
+
+  const listWrap = document.createElement('div');
+  listWrap.className = 'ask-sources-list';
 
   chunkResults.forEach(r => {
     const lines   = r.chunk_text.split('\n').filter(Boolean);
@@ -1074,9 +1084,25 @@ function appendSourcePills(chunkResults) {
     pill.textContent = label;
     pill.title       = 'Jump to this part of the chat';
     pill.addEventListener('click', () => scrollToChunk(r.chunk_index));
-    sources.appendChild(pill);
+    listWrap.appendChild(pill);
   });
 
+  const hideBtn = document.createElement('button');
+  hideBtn.className = 'ask-sources-hide';
+  hideBtn.textContent = 'Hide';
+  hideBtn.title = 'Collapse sources';
+
+  function setExpanded(expanded) {
+    sources.classList.toggle('ask-sources-expanded', expanded);
+    summaryBtn.setAttribute('aria-expanded', String(expanded));
+  }
+
+  summaryBtn.addEventListener('click', () => setExpanded(true));
+  hideBtn.addEventListener('click', () => setExpanded(false));
+
+  sources.appendChild(summaryBtn);
+  sources.appendChild(listWrap);
+  sources.appendChild(hideBtn);
   lastTurn.appendChild(sources);
 }
 
@@ -1101,6 +1127,40 @@ async function retrieveRagChunks(query) {
   }
 }
 
+/** Call backend to expand the user question into 5 RAG search queries. Returns [] on error (caller should fall back to [question]). */
+async function expandRagQueries(question) {
+  try {
+    const res = await fetch(`${API_BASE}/api/ask/expand-queries`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ question }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.queries) && data.queries.length === 5 ? data.queries : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Merge multiple RAG result lists by chunk_index, keeping max score per chunk.
+ *  Deduplicates so the same chunk is never sent twice (at most 100 unique chunks from 5×20);
+ *  returns top ASK_TOP_K for the API. */
+function mergeRagResults(resultLists) {
+  const byIndex = new Map(); // chunk_index -> { chunk_index, chunk_text, score }
+  for (const list of resultLists) {
+    for (const r of list) {
+      const existing = byIndex.get(r.chunk_index);
+      if (!existing || r.score > existing.score) {
+        byIndex.set(r.chunk_index, { chunk_index: r.chunk_index, chunk_text: r.chunk_text, score: r.score });
+      }
+    }
+  }
+  return Array.from(byIndex.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, ASK_TOP_K);
+}
+
 async function sendAskMessage() {
   const text = askInput.value.trim();
   if (!text || askStreaming) return;
@@ -1117,8 +1177,12 @@ async function sendAskMessage() {
   // Retrieve RAG context for this turn
   let ragChunks = [];
   if (currentEmbeddings) {
+    askRagStatus.textContent = 'Generating search queries…';
+    const queries = await expandRagQueries(text);
+    const ragQueries = queries.length === 5 ? queries : [text];
     askRagStatus.textContent = 'Retrieving context…';
-    const results = await retrieveRagChunks(text);
+    const resultLists = await Promise.all(ragQueries.map(q => retrieveRagChunks(q)));
+    const results = mergeRagResults(resultLists);
     ragChunks = results.map(r => r.chunk_text);
     askRagStatus.textContent = ragChunks.length
       ? `${ragChunks.length} excerpt${ragChunks.length > 1 ? 's' : ''} retrieved`
@@ -1159,10 +1223,12 @@ async function sendAskMessage() {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep incomplete last line
+      // SSE events are separated by double newline; split on \n\n so we don't break inside JSON content
+      const events = buffer.split('\n\n');
+      buffer = events.pop();
 
-      for (const line of lines) {
+      for (const event of events) {
+        const line = event.trim();
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6).trim();
         if (payload === '[DONE]') { done_ = true; break; }
@@ -1173,6 +1239,26 @@ async function sendAskMessage() {
           fullText += parsed.content;
           bubble.textContent = fullText;
           askLog.scrollTop = askLog.scrollHeight;
+        }
+      }
+    }
+
+    // Process any remaining buffer (e.g. final event after last read)
+    if (buffer.trim()) {
+      const line = buffer.trim();
+      if (line.startsWith('data: ')) {
+        const payload = line.slice(6).trim();
+        if (payload !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.content) {
+              fullText += parsed.content;
+              bubble.textContent = fullText;
+            }
+          } catch (e) {
+            if (e instanceof Error && e.message && !(e instanceof SyntaxError)) throw e;
+          }
         }
       }
     }

@@ -1,0 +1,10 @@
+---
+description: Keep git commit messages short — no long docs or bullet lists
+alwaysApply: true
+---
+
+# Commit messages
+
+- **One short line** (or one line + optional single short line). No paragraphs, no bullet lists, no "docs" in the message.
+- Good: `Add two-step RAG query expansion and compact sources UI`
+- Bad: Multi-line messages with bullets, implementation details, or changelog-style lists.

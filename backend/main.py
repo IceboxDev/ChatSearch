@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Load .env from the same directory as this file (local dev only)
 load_dotenv(pathlib.Path(__file__).parent / ".env")
@@ -455,6 +455,55 @@ class ChatRequest(BaseModel):
     rag_chunks: list[str] = []           # top-K retrieved chunk texts for this turn
 
 
+class RagQueriesOutput(BaseModel):
+    """Structured output for query expansion: exactly 5 RAG search queries."""
+    queries: list[str] = Field(min_length=5, max_length=5)
+
+
+class ExpandQueriesRequest(BaseModel):
+    question: str
+
+
+_EXPAND_QUERIES_SYSTEM = """You help turn a user question about a WhatsApp chat into search queries for finding relevant messages.
+Output exactly 5 short, diverse search queries that would retrieve relevant chat excerpts. Use keywords, topics, names, dates — not full sentences.
+Each query should be a different angle or rephrasing to maximize recall."""
+
+
+@app.post("/api/ask/expand-queries")
+async def expand_queries(req: ExpandQueriesRequest):
+    """Generate 5 RAG-oriented search queries from the user question using structured output."""
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Question is empty")
+    schema = RagQueriesOutput.model_json_schema()
+    schema["additionalProperties"] = False
+    try:
+        response = await _get_openai_client().chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {"role": "system", "content": _EXPAND_QUERIES_SYSTEM},
+                {"role": "user", "content": req.question.strip()},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "rag_queries",
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"OpenAI error: {e}")
+    content = response.choices[0].message.content
+    if not content:
+        raise HTTPException(status_code=502, detail="Empty response from model")
+    try:
+        parsed = RagQueriesOutput.model_validate_json(content)
+        return {"queries": parsed.queries}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Invalid structured response: {e}")
+
+
 _SYSTEM_PROMPT = """You are a helpful assistant answering questions about a WhatsApp chat export.
 The user has retrieved the most relevant excerpts from the chat for each question.
 Use the provided excerpts as your primary source. Be concise, direct, and conversational.
@@ -493,7 +542,7 @@ async def chat(req: ChatRequest):
                 model="gpt-5",
                 messages=oai_messages,
                 stream=True,
-                max_completion_tokens=2048,
+                max_completion_tokens=8192,
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None

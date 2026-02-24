@@ -625,8 +625,55 @@ mark.search-hit.current {
 .ask-sources {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   margin-top: 5px;
+}
+.ask-sources-summary {
+  background: #182229;
+  border: 1px solid #2A3942;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.ask-sources-summary:hover {
+  background: #2A3942;
+  border-color: #00A884;
+  color: var(--text-primary);
+}
+.ask-sources-list {
+  display: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  align-content: flex-start;
+}
+.ask-sources-expanded .ask-sources-list {
+  display: flex;
+}
+.ask-sources-expanded .ask-sources-summary {
+  display: none;
+}
+.ask-sources-hide {
+  display: none;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ask-sources-expanded .ask-sources-hide {
+  display: inline-block;
+}
+.ask-sources-hide:hover {
+  color: #00A884;
 }
 .ask-source-pill {
   background: #182229;
