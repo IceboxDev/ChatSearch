@@ -445,7 +445,7 @@ async def chat(req: ChatRequest):
                 model="gpt-5-mini",
                 messages=oai_messages,
                 stream=True,
-                max_tokens=1024,
+                max_completion_tokens=1024,
                 temperature=0.4,
             )
             async for chunk in stream:
