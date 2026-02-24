@@ -978,7 +978,7 @@ const askSend     = document.getElementById('ask-send');
 const askNewChat  = document.getElementById('ask-new-chat');
 const askRagStatus = document.getElementById('ask-rag-status');
 
-const ASK_TOP_K = 5;  // chunks retrieved per question
+const ASK_TOP_K = 20;  // chunks retrieved per question
 
 // Auto-grow the textarea
 askInput.addEventListener('input', () => {
@@ -1145,9 +1145,16 @@ async function sendAskMessage() {
     }
 
     bubble.classList.remove('streaming');
-    askHistory.push({ role: 'assistant', content: fullText });
-    appendSourcePills(window._lastAskRagResults || []);
-    askRagStatus.textContent = '';
+    if (!fullText.trim()) {
+      bubble.textContent = 'No response was received. The service may have timed out or returned an empty reply. Try again or start a new conversation.';
+      bubble.style.color = '#CF6679';
+      askRagStatus.textContent = '';
+      // Do not push empty assistant reply to history
+    } else {
+      askHistory.push({ role: 'assistant', content: fullText });
+      appendSourcePills(window._lastAskRagResults || []);
+      askRagStatus.textContent = '';
+    }
 
   } catch (err) {
     bubble.classList.remove('streaming');

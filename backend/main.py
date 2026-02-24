@@ -442,10 +442,10 @@ async def chat(req: ChatRequest):
     async def generate():
         try:
             stream = await _get_openai_client().chat.completions.create(
-                model="gpt-5-mini",
+                model="gpt-5",
                 messages=oai_messages,
                 stream=True,
-                max_completion_tokens=1024,
+                max_completion_tokens=2048,
             )
             async for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
