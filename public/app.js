@@ -1119,8 +1119,9 @@ async function sendAskMessage() {
     const decoder = new TextDecoder();
     let fullText  = '';
     let buffer    = '';
+    let done_     = false;
 
-    while (true) {
+    while (!done_) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -1131,16 +1132,15 @@ async function sendAskMessage() {
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6).trim();
-        if (payload === '[DONE]') break;
-        try {
-          const { content, error } = JSON.parse(payload);
-          if (error) throw new Error(error);
-          if (content) {
-            fullText += content;
-            bubble.textContent = fullText;
-            askLog.scrollTop = askLog.scrollHeight;
-          }
-        } catch { /* skip malformed SSE lines */ }
+        if (payload === '[DONE]') { done_ = true; break; }
+        let parsed;
+        try { parsed = JSON.parse(payload); } catch { continue; }
+        if (parsed.error) throw new Error(parsed.error);
+        if (parsed.content) {
+          fullText += parsed.content;
+          bubble.textContent = fullText;
+          askLog.scrollTop = askLog.scrollHeight;
+        }
       }
     }
 
