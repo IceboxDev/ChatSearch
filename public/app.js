@@ -163,11 +163,20 @@ function parseChat(content) {
   content = content.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = content.split('\n');
 
+  function which(line) {
+    if (FMT_A.test(line)) return 'A';
+    if (FMT_B.test(line)) return 'B';
+    if (FMT_C.test(line)) return 'C';
+    return '';
+  }
   let countA = 0, countB = 0, countC = 0;
+  let prev = '';
   for (const l of lines) {
-    if (FMT_A.test(l)) countA++;
-    else if (FMT_B.test(l)) countB++;
-    else if (FMT_C.test(l)) countC++;
+    const w = which(l);
+    if (w === 'A' && prev !== 'C') countA++;
+    else if (w === 'B' && prev !== 'C') countB++;
+    else if (w === 'C') countC++;
+    prev = w;
   }
   const dominant = (countC >= countA && countC >= countB) ? 'C' : (countA >= countB ? 'A' : 'B');
   const parsers = [parseFmtA, parseFmtB, parseFmtC];

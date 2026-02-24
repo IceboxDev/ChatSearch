@@ -289,10 +289,33 @@ def _parse_fmt_c(line: str):
 
 
 def _detect_dominant_format(lines: list[str]) -> str:
-    """Return 'A', 'B', or 'C' depending on which format appears most in the file."""
-    a = sum(1 for l in lines if _FMT_A.match(l))
-    b = sum(1 for l in lines if _FMT_B.match(l))
-    c = sum(1 for l in lines if _FMT_C.match(l))
+    """Return 'A', 'B', or 'C' by prevalence of message-start lines.
+    Count every line that matches a format, except: do not count A/B when they
+    appear right after a C (or other format) line — those are likely pasted
+    content, not real message starts.
+    """
+    def which(line: str) -> str:
+        if _FMT_A.match(line):
+            return "A"
+        if _FMT_B.match(line):
+            return "B"
+        if _FMT_C.match(line):
+            return "C"
+        return ""
+
+    a = b = c = 0
+    prev = ""
+    for line in lines:
+        w = which(line)
+        if w == "A":
+            if prev != "C":
+                a += 1
+        elif w == "B":
+            if prev != "C":
+                b += 1
+        elif w == "C":
+            c += 1
+        prev = w
     if c >= a and c >= b:
         return "C"
     return "A" if a >= b else "B"
