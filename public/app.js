@@ -181,11 +181,11 @@ function showPicker(participants) {
     btn.textContent  = name;
     btn.addEventListener('click', () => {
       selfSender = name;
-      // Save the chosen name back so it's remembered
       myNameInput.value = name;
       localStorage.setItem(NAME_KEY, name);
+      const data = pendingData, file = pendingFile;
       hidePicker();
-      renderChat(pendingData, pendingFile);
+      renderChat(data, file);
     });
     pickerList.appendChild(btn);
   });
@@ -194,8 +194,9 @@ function showPicker(participants) {
 
 pickerSkip.addEventListener('click', () => {
   selfSender = null;
+  const data = pendingData, file = pendingFile;
   hidePicker();
-  renderChat(pendingData, pendingFile);
+  renderChat(data, file);
 });
 
 function hidePicker() {
@@ -723,6 +724,14 @@ function onEmbeddingsReady() {
   if (q) runContextSearch(q);
 }
 
+// ── Cosine similarity (client-side) ──────────────────────────────────────────
+function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
 // ── Context search query ──────────────────────────────────────────────────────
 let contextDebounce = null;
 
@@ -734,22 +743,27 @@ async function runContextSearch(query) {
   clearContextResults();
 
   try {
-    const res = await fetch(`${API_BASE}/api/search/context`, {
+    // Only send the query string — cosine similarity runs locally
+    const res = await fetch(`${API_BASE}/api/embed/query`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        query,
-        chunks:     currentChunks,
-        embeddings: currentEmbeddings,
-        top_k:      8,
-      }),
+      body:    JSON.stringify({ query }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Search failed.' }));
       throw new Error(err.detail || 'Search failed.');
     }
-    const { results } = await res.json();
-    renderContextResults(results, query);
+    const { embedding: qVec } = await res.json();
+
+    // Score all chunks locally
+    const TOP_K = 8;
+    const scored = currentEmbeddings
+      .map((emb, i) => ({ i, score: cosine(qVec, emb) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, TOP_K)
+      .map(({ i, score }) => ({ chunk_index: i, chunk_text: currentChunks[i], score: Math.round(score * 10000) / 10000 }));
+
+    renderContextResults(scored, query);
   } catch (err) {
     showError(err.message);
   }

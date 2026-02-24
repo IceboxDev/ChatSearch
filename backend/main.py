@@ -1,4 +1,3 @@
-import math
 import os
 import pathlib
 import re
@@ -349,62 +348,24 @@ async def embed_chunks(req: EmbedRequest):
     return EmbedResponse(embeddings=embeddings)
 
 
-class ContextSearchRequest(BaseModel):
+class QueryEmbedRequest(BaseModel):
     query: str
-    chunks: list[str]
-    embeddings: list[list[float]]
-    top_k: int = 5
 
 
-class ChunkResult(BaseModel):
-    chunk_index: int
-    chunk_text: str
-    score: float
+class QueryEmbedResponse(BaseModel):
+    embedding: list[float]
 
 
-class ContextSearchResponse(BaseModel):
-    results: list[ChunkResult]
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot  = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
-@app.post("/api/search/context", response_model=ContextSearchResponse)
-async def context_search(req: ContextSearchRequest):
+@app.post("/api/embed/query", response_model=QueryEmbedResponse)
+async def embed_query(req: QueryEmbedRequest):
+    """Embed a single search query. Cosine similarity is computed client-side."""
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query is empty")
-    if len(req.chunks) != len(req.embeddings):
-        raise HTTPException(status_code=400, detail="chunks and embeddings length mismatch")
-
     try:
-        q_response = await _get_openai_client().embeddings.create(
+        response = await _get_openai_client().embeddings.create(
             model=EMBED_MODEL,
             input=[req.query],
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"OpenAI error: {e}")
-
-    q_vec = q_response.data[0].embedding
-
-    scored = [
-        (i, _cosine(q_vec, emb))
-        for i, emb in enumerate(req.embeddings)
-    ]
-    scored.sort(key=lambda x: x[1], reverse=True)
-
-    top_k = min(req.top_k, len(scored))
-    results = [
-        ChunkResult(
-            chunk_index=i,
-            chunk_text=req.chunks[i],
-            score=round(score, 4),
-        )
-        for i, score in scored[:top_k]
-    ]
-    return ContextSearchResponse(results=results)
+    return QueryEmbedResponse(embedding=response.data[0].embedding)
