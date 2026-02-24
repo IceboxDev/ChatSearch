@@ -342,7 +342,9 @@ def parse_chat(content: str) -> ParsedChat:
             if current:
                 messages.append(Message(**current))
             time, date, sender, text = parsed
-            participants.add(sender)
+            # Only count sender as participant when line matches dominant format (not pasted content)
+            if parse_primary(line):
+                participants.add(sender)
             text = text.strip().lstrip("\u200e\u200f")  # iOS sometimes puts LTR mark in message body
             current = {
                 "time": time,

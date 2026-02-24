@@ -190,11 +190,12 @@ function parseChat(content) {
   let current = null;
 
   for (const line of lines) {
-    const parsed = parsePrimary(line) || parseSecondary(line) || parseTertiary(line);
+    const primaryParsed = parsePrimary(line);
+    const parsed = primaryParsed || parseSecondary(line) || parseTertiary(line);
     if (parsed) {
       if (current) messages.push(current);
       const [time, date, sender, text] = parsed;
-      participantSet.add(sender);
+      if (primaryParsed) participantSet.add(sender);
       const textClean = text.trim().replace(/^[\u200e\u200f]+/, '');
       current = { time, date, sender, text: textClean, is_media: MEDIA_RE.test(text) };
     } else if (current !== null && line.trim()) {
